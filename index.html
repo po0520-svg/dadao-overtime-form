@@ -5,8 +5,8 @@
 @page{size:A4 landscape;margin:0}
 @media print{html,body{width:297mm;background:white;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}.tools{display:none!important}.paper{width:297mm;height:210mm;min-height:210mm;margin:0;padding:6mm 7mm;box-shadow:none;overflow:hidden}input,textarea{border:0!important;resize:none;overflow:hidden}.sheet th,.sheet td{height:60px;padding:5px 4px}.sheet textarea{height:32px}.print-only{display:inline}h1{margin-bottom:12px}}
 @media screen and (max-width:1120px){.paper{transform-origin:top left;margin-left:12px}.tools{margin:10px}}
-</style></head><body>
-<div class="tools"><strong>大道國中｜平日中午加班申請表</strong><button onclick="window.print()">匯出 PDF／列印（A4 橫式）</button><button class="secondary" onclick="save()">儲存資料</button><button class="secondary" onclick="resetForm()">清空表單</button><small id="status">資料僅保存在此瀏覽器</small></div>
+</style><script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script><script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script></head><body>
+<div class="tools"><strong>大道國中｜平日中午加班申請表</strong><button id="pdfDownload" onclick="exportPDF(false)">直接下載 PDF（手機適用）</button><button id="pdfShare" class="secondary" onclick="exportPDF(true)">分享／儲存 PDF</button><button class="secondary" onclick="window.print()">列印／另存 PDF</button><button class="secondary" onclick="save()">儲存資料</button><button class="secondary" onclick="resetForm()">清空表單</button><small id="status">資料僅保存在此瀏覽器</small></div>
 <main class="paper" id="form">
 <h1>臺中市立大道國民中學兼任行政職務教師、職員 <input aria-label="民國年度" id="year" type="number" min="1" max="999" value="115" style="width:62px;border:0;border-bottom:1px solid #888;padding:0 2px;font-weight:bold"> 年 <input aria-label="月份" id="month" type="number" min="1" max="12" value="10" style="width:48px;border:0;border-bottom:1px solid #888;padding:0 2px;font-weight:bold"> 月平日中午加班申請表</h1>
 <div class="meta"><label>處室：<input id="office" value="教務處"></label><label>職稱：<input id="job"></label><label>姓名：<input id="name"></label></div>
@@ -19,6 +19,35 @@ const body=document.getElementById('rows');for(let i=0;i<10;i++){const tr=docume
 const fields=()=>Array.from(document.querySelectorAll('#form input,#form textarea'));
 function save(){try{localStorage.setItem('dadao-overtime-v1',JSON.stringify(fields().map(x=>x.value)));document.getElementById('status').textContent='已儲存於此瀏覽器'}catch(e){document.getElementById('status').textContent='無法儲存：請檢查瀏覽器設定'}}
 function load(){try{const a=JSON.parse(localStorage.getItem('dadao-overtime-v1')||'null');if(a&&Array.isArray(a))fields().forEach((x,i)=>{if(a[i]!==undefined)x.value=a[i]})}catch(e){}}
+async function exportPDF(share){
+ const status=document.getElementById('status'), btn=document.getElementById(share?'pdfShare':'pdfDownload');
+ if(!window.html2canvas||!window.jspdf){status.textContent='PDF 元件尚未載入，請確認網路連線後重新整理';return}
+ btn.disabled=true;status.textContent='正在製作 A4 橫式 PDF…';
+ let clone;
+ try{
+  save();
+  const original=document.getElementById('form');
+  clone=original.cloneNode(true);
+  clone.removeAttribute('id');
+  clone.style.cssText='position:fixed;left:0;top:0;z-index:-1;width:1122px;min-height:0;height:auto;margin:0;padding:23px 26px;box-shadow:none;transform:none;background:#fff;overflow:visible';
+  const src=original.querySelectorAll('input,textarea'),dest=clone.querySelectorAll('input,textarea');
+  dest.forEach((el,i)=>{const value=src[i].value;const span=document.createElement('span');span.textContent=value||'　';span.style.cssText='display:inline-block;vertical-align:middle;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.4;max-width:100%;min-width:10px';if(el.closest('h1')){span.style.fontWeight='bold';span.style.borderBottom='1px solid #888'}else if(el.closest('td')){span.style.width='100%';span.style.textAlign=el.tagName==='TEXTAREA'?'left':'center'}else{span.style.minWidth='90px';span.style.borderBottom='1px solid #aaa'}el.replaceWith(span)});
+  document.body.appendChild(clone);
+  await document.fonts.ready;
+  const canvas=await html2canvas(clone,{scale:2,backgroundColor:'#ffffff',useCORS:true,scrollX:0,scrollY:0,windowWidth:1200});
+  const pdf=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4',compress:true});
+  const maxW=283,maxH=198,ratio=Math.min(maxW/canvas.width,maxH/canvas.height),w=canvas.width*ratio,h=canvas.height*ratio;
+  pdf.addImage(canvas.toDataURL('image/jpeg',0.94),'JPEG',(297-w)/2,(210-h)/2,w,h,undefined,'FAST');
+  const yr=document.getElementById('year').value||'年度',mo=document.getElementById('month').value||'月份',name=(document.getElementById('name').value||'未填姓名').replace(/[\\/:*?"<>|]/g,'_');
+  const filename='大道國中_平日中午加班申請表_'+yr+'年'+mo+'月_'+name+'.pdf';
+  if(share&&navigator.share&&navigator.canShare){
+    const file=new File([pdf.output('blob')],filename,{type:'application/pdf'});
+    if(navigator.canShare({files:[file]})){await navigator.share({files:[file],title:'平日中午加班申請表'});status.textContent='已開啟手機分享／儲存選單';return}
+  }
+  pdf.save(filename);status.textContent='PDF 已產生；若未自動下載，請查看瀏覽器下載項目';
+ }catch(err){if(err.name==='AbortError'){status.textContent='已取消分享'}else{console.error(err);status.textContent='PDF 產生失敗，請改用「列印／另存 PDF」';alert('無法產生 PDF，請檢查網路連線或改用列印功能。')}}
+ finally{if(clone)clone.remove();btn.disabled=false}
+}
 function resetForm(){if(!confirm('確定清空所有填寫資料？'))return;localStorage.removeItem('dadao-overtime-v1');location.reload()}
 document.getElementById('form').addEventListener('input',save);load();
 </script></body></html>
